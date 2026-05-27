@@ -99,6 +99,18 @@ const DOM = {
   btnLogout:     $('btn-logout'),
   btnTestAlert:  $('btn-test-alert'),
 
+  // Health profile fields
+  healthBlood:       $('health-blood'),
+  healthAge:         $('health-age'),
+  healthConditions:  $('health-conditions'),
+  healthMedications: $('health-medications'),
+  healthPlate:       $('health-plate'),
+  healthAddress:     $('health-address'),
+  healthContactName: $('health-contact-name'),
+  smsPreviewBox:     $('sms-preview-box'),
+  smsPreviewText:    $('sms-preview-text'),
+  smsPreviewCount:   $('sms-preview-count'),
+
   // Misc
   navbarStatus:  $('navbar-status'),
   toastContainer:$('toast-container'),
@@ -254,6 +266,14 @@ function setupAppUI() {
 
   // Save settings
   DOM.btnSaveSettings.addEventListener('click', saveRiderSettings);
+
+  // Live SMS preview — update whenever any health field changes
+  const healthFields = ['custom-msg','health-blood','health-age','health-conditions',
+    'health-medications','health-plate','health-address','health-contact-name'];
+  healthFields.forEach(id => {
+    const el = $(id);
+    if (el) el.addEventListener('input', updateSMSPreview);
+  });
 
   // Fall overlay
   DOM.btnImOk.addEventListener('click', handleImOk);
@@ -619,20 +639,37 @@ function renderContacts() {
 
 async function saveRiderSettings() {
   if (!state.user) return;
-  const msg = DOM.customMsg?.value || '';
+  const msg = DOM.customMsg?.value.trim() || '';
+
+  const health = {
+    blood_type:    DOM.healthBlood?.value         || '',
+    age:           DOM.healthAge?.value            || '',
+    conditions:    DOM.healthConditions?.value.trim()  || '',
+    medications:   DOM.healthMedications?.value.trim() || '',
+    plate:         DOM.healthPlate?.value.trim()       || '',
+    address:       DOM.healthAddress?.value.trim()     || '',
+    contact_name:  DOM.healthContactName?.value.trim() || '',
+  };
+
   setLoading(DOM.btnSaveSettings, true, 'Saving…');
   try {
     await updateUserProfile(state.user.id, {
       emergency_contacts: state.contacts,
-      custom_message: msg
+      custom_message: msg,
+      health_profile: health,
     });
     state.profile.emergency_contacts = state.contacts;
     state.profile.custom_message     = msg;
+    state.profile.health_profile     = health;
+    updateSMSPreview();
     showToast('Settings saved ✓', 'success');
+
+    // Re-sync to helmet if connected
+    if (state.bleConnected) await sendRiderInfoToBLE();
   } catch (e) {
     showToast('Failed to save: ' + e.message, 'error');
   } finally {
-    setLoading(DOM.btnSaveSettings, false, '💾 Save Settings');
+    setLoading(DOM.btnSaveSettings, false, '💾 Save Health Profile & Settings');
   }
 }
 
@@ -643,6 +680,18 @@ function renderSettingsPanel() {
   if (DOM.settingsName)  DOM.settingsName.value  = state.profile?.name  || '';
   if (DOM.settingsEmail) DOM.settingsEmail.value  = state.user?.email   || '';
   if (DOM.customMsg)     DOM.customMsg.value      = state.profile?.custom_message || '';
+
+  // Populate health profile fields
+  const h = state.profile?.health_profile || {};
+  if (DOM.healthBlood)       DOM.healthBlood.value       = h.blood_type   || '';
+  if (DOM.healthAge)         DOM.healthAge.value          = h.age          || '';
+  if (DOM.healthConditions)  DOM.healthConditions.value   = h.conditions   || '';
+  if (DOM.healthMedications) DOM.healthMedications.value  = h.medications  || '';
+  if (DOM.healthPlate)       DOM.healthPlate.value        = h.plate        || '';
+  if (DOM.healthAddress)     DOM.healthAddress.value      = h.address      || '';
+  if (DOM.healthContactName) DOM.healthContactName.value  = h.contact_name || '';
+
+  updateSMSPreview();
 }
 
 async function saveProfile() {
@@ -842,45 +891,110 @@ function showLoading(show) {
 }
 
 /* ───────────────────────────────────────────────────────────
+   EMERGENCY SMS BUILDER
+   Assembles all rider + health info into a structured SMS body.
+   Returns an array of strings, each ≤155 chars, ready to be
+   sent as individual messages by the ESP32.
+─────────────────────────────────────────────────────────── */
+function buildEmergencySMS() {
+  const name    = state.profile?.name                         || 'Unknown Rider';
+  const custom  = state.profile?.custom_message               || '';
+  const h       = state.profile?.health_profile               || {};
+
+  const lines = [];
+  lines.push('🚨 RIDEGUARD EMERGENCY ALERT');
+  lines.push('Rider: ' + name);
+
+  if (h.age)         lines.push('Age: ' + h.age);
+  if (h.blood_type)  lines.push('Blood Type: ' + h.blood_type);
+  if (h.conditions)  lines.push('Medical: ' + h.conditions);
+  if (h.medications) lines.push('Meds: ' + h.medications);
+  if (h.plate)       lines.push('Motorcycle: ' + h.plate);
+  if (h.address)     lines.push('Home Address: ' + h.address);
+  if (h.contact_name)lines.push('Alt. Contact: ' + h.contact_name);
+  if (custom)        lines.push(custom);
+  lines.push('Sent via RideGuard Safety System');
+
+  // Split into 155-char chunks (leaves room for "1/2 " prefix)
+  const fullText = lines.join('\n');
+  const chunks = [];
+  const LIMIT = 155;
+  let remaining = fullText;
+  while (remaining.length > 0) {
+    if (remaining.length <= LIMIT) {
+      chunks.push(remaining);
+      break;
+    }
+    // Try to break at a newline
+    let cut = remaining.lastIndexOf('\n', LIMIT);
+    if (cut <= 0) cut = LIMIT;
+    chunks.push(remaining.substring(0, cut));
+    remaining = remaining.substring(cut).replace(/^\n/, '');
+  }
+
+  // Prefix each chunk if more than one
+  if (chunks.length > 1) {
+    return chunks.map((c, i) => `[${i+1}/${chunks.length}] ${c}`);
+  }
+  return chunks;
+}
+
+function updateSMSPreview() {
+  if (!DOM.smsPreviewBox || !DOM.smsPreviewText) return;
+  const chunks = buildEmergencySMS();
+  const preview = chunks.join('\n──\n');
+  DOM.smsPreviewBox.style.display  = 'block';
+  DOM.smsPreviewText.textContent   = preview;
+  const totalChars = chunks.reduce((s, c) => s + c.length, 0);
+  DOM.smsPreviewCount.textContent  =
+    `${chunks.length} SMS · ${totalChars} chars total`;
+}
+
+/* ───────────────────────────────────────────────────────────
    SEND RIDER INFO TO ESP32 VIA BLE
    Called right after Bluetooth connects.
-   Sends two messages:
+   Sends:
      CONTACTS:+63917XXXXXXX,+63928XXXXXXX
      NAME:Marco Santos
-     MSG:I may have been in an accident...
+     MSGCOUNT:2          ← tells ESP32 how many MSG parts
+     MSG1:...[part 1]
+     MSG2:...[part 2]
 ─────────────────────────────────────────────────────────── */
 async function sendRiderInfoToBLE() {
   if (!state.bleCharacteristic) return;
 
   const contacts = state.contacts || [];
-  const name     = state.profile?.name        || 'Rider';
-  const msg      = state.profile?.custom_message || 'I may have been in an accident. Please check on me. — RideGuard Alert';
+  const name     = state.profile?.name || 'Rider';
+  const chunks   = buildEmergencySMS();
 
   // Small delay to let ESP32 settle after connection
   await new Promise(r => setTimeout(r, 800));
 
   try {
-    // 1. Send contacts as comma-separated list
+    // 1. Send contacts
     if (contacts.length > 0) {
-      const contactStr = 'CONTACTS:' + contacts.join(',');
-      await sendBLEMessage(contactStr);
-      console.log('[BLE] Sent:', contactStr);
+      await sendBLEMessage('CONTACTS:' + contacts.join(','));
       await new Promise(r => setTimeout(r, 400));
     }
 
     // 2. Send rider name
     await sendBLEMessage('NAME:' + name);
-    console.log('[BLE] Sent name:', name);
     await new Promise(r => setTimeout(r, 400));
 
-    // 3. Send custom emergency message (truncated to 160 chars for SMS)
-    const smsMsg = msg.substring(0, 160);
-    await sendBLEMessage('MSG:' + smsMsg);
-    console.log('[BLE] Sent message:', smsMsg);
+    // 3. Tell ESP32 how many message parts to expect
+    await sendBLEMessage('MSGCOUNT:' + chunks.length);
+    await new Promise(r => setTimeout(r, 300));
 
-    showToast('📡 Contacts synced to helmet', 'success');
+    // 4. Send each chunk as MSG1: MSG2: etc.
+    for (let i = 0; i < chunks.length; i++) {
+      await sendBLEMessage('MSG' + (i + 1) + ':' + chunks[i]);
+      console.log('[BLE] Sent MSG' + (i+1) + ' (' + chunks[i].length + ' chars)');
+      await new Promise(r => setTimeout(r, 500));
+    }
+
+    showToast('📡 Rider profile synced to helmet', 'success');
   } catch (e) {
     console.error('[BLE] Failed to send rider info:', e);
-    showToast('Could not sync contacts to helmet', 'warning');
+    showToast('Could not sync profile to helmet', 'warning');
   }
 }

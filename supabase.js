@@ -128,6 +128,7 @@ CREATE TABLE IF NOT EXISTS public.users (
   role TEXT DEFAULT 'rider' CHECK (role IN ('rider', 'family')),
   emergency_contacts JSONB DEFAULT '[]'::jsonb,
   custom_message TEXT DEFAULT 'I may need help. Please check on me.',
+  health_profile JSONB DEFAULT '{}'::jsonb,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -163,4 +164,8 @@ CREATE POLICY "Authenticated can read alerts"
 
 -- Enable realtime on alerts
 ALTER PUBLICATION supabase_realtime ADD TABLE public.alerts;
+
+-- ── MIGRATION (run if upgrading an existing RideGuard project) ──
+-- ALTER TABLE public.users ADD COLUMN IF NOT EXISTS
+--   health_profile JSONB DEFAULT '{}'::jsonb;
 */
