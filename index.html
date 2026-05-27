@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#002D62" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>RideGuard — Rider Safety System</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="manifest" href="manifest.json" />
+
+  <!-- ⚠️ SETUP: Replace this URL with your real Supabase JS CDN URL -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+  <!-- ─── LOADING OVERLAY ────────────────────────────────── -->
+  <div class="loading-overlay" id="loading-overlay">
+    <div class="loader"></div>
+    <span style="color:white;font-size:0.9rem;font-weight:600;font-family:var(--font-body)">Loading RideGuard…</span>
+  </div>
+
+  <!-- ─── TOAST CONTAINER ────────────────────────────────── -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- ════════════════════════════════════════════════════════
+       AUTH PAGE
+  ════════════════════════════════════════════════════════ -->
+  <div id="page-auth" style="display:none; min-height:100vh; background: linear-gradient(160deg, #002D62 0%, #004080 60%, #005380 100%); align-items:center; justify-content:center;">
+    <div class="auth-container">
+
+      <!-- Logo -->
+      <div class="auth-logo">
+        <div class="auth-logo-icon">🏍️</div>
+        <div class="auth-logo-title">Ride<span>Guard</span></div>
+        <div class="auth-logo-sub">Your safety companion on every ride</div>
+      </div>
+
+      <!-- Auth Card -->
+      <div class="auth-card">
+        <!-- Tabs -->
+        <div class="auth-tabs">
+          <button class="auth-tab active" id="tab-login">Sign In</button>
+          <button class="auth-tab"        id="tab-signup">Create Account</button>
+        </div>
+
+        <!-- Login Form -->
+        <div class="auth-form active" id="form-login">
+          <div class="auth-error" id="login-error"></div>
+          <div class="form-group">
+            <label class="form-label" for="login-email">Email Address</label>
+            <input class="form-input" type="email" id="login-email" placeholder="you@email.com" autocomplete="email" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="login-pass">Password</label>
+            <input class="form-input" type="password" id="login-pass" placeholder="Enter password" autocomplete="current-password" />
+          </div>
+          <button class="btn btn-primary mt-16" id="btn-login">🔑 Sign In</button>
+        </div>
+
+        <!-- Signup Form -->
+        <div class="auth-form" id="form-signup">
+          <div class="auth-error" id="signup-error"></div>
+          <div class="form-group">
+            <label class="form-label" for="signup-name">Full Name</label>
+            <input class="form-input" type="text" id="signup-name" placeholder="Your full name" autocomplete="name" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="signup-email">Email Address</label>
+            <input class="form-input" type="email" id="signup-email" placeholder="you@email.com" autocomplete="email" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="signup-pass">Password</label>
+            <input class="form-input" type="password" id="signup-pass" placeholder="Min. 6 characters" autocomplete="new-password" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="signup-role">I am a…</label>
+            <select class="form-select" id="signup-role">
+              <option value="rider">🏍️ Rider</option>
+              <option value="family">👨‍👩‍👧 Family Member / Emergency Contact</option>
+            </select>
+          </div>
+          <button class="btn btn-primary mt-8" id="btn-signup">🚀 Create Account</button>
+        </div>
+
+        <p style="text-align:center;font-size:0.78rem;color:var(--gray-400);margin-top:20px;">
+          Protected by Supabase Auth &nbsp;·&nbsp; End-to-end encrypted
+        </p>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════
+       APP PAGE (shown after login)
+  ════════════════════════════════════════════════════════ -->
+  <div id="page-app" style="display:none;">
+
+    <!-- Sticky Top Navbar -->
+    <nav class="navbar" id="navbar">
+      <div class="navbar-brand">
+        <div class="navbar-logo">🏍️</div>
+        <span class="navbar-title">Ride<span>Guard</span></span>
+      </div>
+      <div class="navbar-actions">
+        <div class="navbar-status" id="navbar-status" title="Helmet connection status"></div>
+        <button class="btn-icon" onclick="if(state.activeTab==='history')loadHistory(); else if(state.activeTab==='family')loadFamilyPortal();" title="Refresh">↻</button>
+      </div>
+    </nav>
+
+    <!-- Emergency Banner (hidden by default) -->
+    <div class="emergency-banner" id="emergency-banner">
+      <div class="emergency-banner-text">🚨 EMERGENCY DETECTED — Checking rider status…</div>
+      <button class="emergency-banner-close" id="btn-close-banner">✕</button>
+    </div>
+
+    <!-- ─────────────────────────────────────────────────────
+         DASHBOARD PANEL
+    ───────────────────────────────────────────────────── -->
+    <div id="panel-dashboard" style="display:none;">
+      <div class="container">
+
+        <!-- Status Card -->
+        <div class="card status-card animate-in">
+          <div class="status-label">Current Rider</div>
+          <div class="status-name" id="rider-name">Loading…</div>
+          <div class="status-sub" id="helmet-status">Helmet: Not connected</div>
+          <div id="safety-badge" class="status-badge safe">
+            <span class="status-dot safe"></span>💙 MONITORING
+          </div>
+          <div class="status-time" id="last-update">Last update: —</div>
+        </div>
+
+        <!-- BLE Connection Card -->
+        <div class="card animate-in" style="animation-delay:0.07s">
+          <div class="card-header">
+            <span class="card-title">Helmet Connection</span>
+            <div class="card-icon">📡</div>
+          </div>
+          <button class="ble-btn" id="ble-btn">
+            <div class="ble-btn-icon">📡</div>
+            <div class="ble-btn-label" id="ble-btn-label">Connect Helmet</div>
+            <div class="ble-btn-sub" id="ble-btn-sub">Tap to pair via Bluetooth</div>
+          </button>
+          <p style="font-size:0.75rem;color:var(--gray-400);margin-top:12px;text-align:center;line-height:1.5;">
+            Requires Chrome on Android · ESP32 device named "RideGuard"
+          </p>
+        </div>
+
+        <!-- Emergency Contacts Card -->
+        <div class="card animate-in" style="animation-delay:0.14s">
+          <div class="card-header">
+            <span class="card-title">Emergency Contacts</span>
+            <div class="card-icon">📞</div>
+          </div>
+          <div id="contacts-list" class="contacts-container"></div>
+          <div class="contact-input-row">
+            <input class="form-input" type="tel" id="contact-input" placeholder="+63 917 000 0000" />
+            <button class="btn btn-navy btn-sm" id="btn-add-contact">+ Add</button>
+          </div>
+        </div>
+
+        <!-- Alert Message Card -->
+        <div class="card animate-in" style="animation-delay:0.21s">
+          <div class="card-header">
+            <span class="card-title">Emergency Message</span>
+            <div class="card-icon">💬</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Custom SMS message sent on emergency</label>
+            <textarea class="form-textarea" id="custom-msg" placeholder="I may need help. Please check on me immediately. — RideGuard Alert"></textarea>
+          </div>
+          <button class="btn btn-primary" id="btn-save-settings">💾 Save Settings</button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ─────────────────────────────────────────────────────
+         FAMILY PORTAL PANEL
+    ───────────────────────────────────────────────────── -->
+    <div id="panel-family" style="display:none;">
+      <div class="container">
+        <div class="section-title">Family Portal</div>
+        <div class="section-sub">Real-time status of all registered riders</div>
+        <div id="family-list"></div>
+      </div>
+    </div>
+
+    <!-- ─────────────────────────────────────────────────────
+         HISTORY PANEL
+    ───────────────────────────────────────────────────── -->
+    <div id="panel-history" style="display:none;">
+      <div class="container">
+        <div class="section-title">Alert History</div>
+        <div class="section-sub">All fall detection events and their outcomes</div>
+        <div class="card">
+          <div id="history-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─────────────────────────────────────────────────────
+         SETTINGS PANEL
+    ───────────────────────────────────────────────────── -->
+    <div id="panel-settings" style="display:none;">
+      <div class="container">
+        <div class="section-title">Settings</div>
+        <div class="section-sub">Manage your profile and preferences</div>
+
+        <!-- Profile Card -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Profile</span>
+            <div class="card-icon">👤</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Full Name</label>
+            <input class="form-input" type="text" id="settings-name" placeholder="Your name" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Email</label>
+            <input class="form-input" type="email" id="settings-email" placeholder="your@email.com" disabled style="opacity:0.6" />
+          </div>
+          <button class="btn btn-primary" id="btn-save-profile">💾 Save Profile</button>
+        </div>
+
+        <!-- App Settings Card -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">App Settings</span>
+            <div class="card-icon">⚙️</div>
+          </div>
+          <div class="toggle-row">
+            <div>
+              <div class="toggle-label">Sound Alerts</div>
+              <div class="toggle-sub">Play alarm on fall detection</div>
+            </div>
+            <button class="toggle on" id="toggle-sound" onclick="this.classList.toggle('on')"></button>
+          </div>
+          <div class="toggle-row">
+            <div>
+              <div class="toggle-label">Vibration</div>
+              <div class="toggle-sub">Vibrate on alerts (mobile)</div>
+            </div>
+            <button class="toggle on" id="toggle-vibrate" onclick="this.classList.toggle('on')"></button>
+          </div>
+          <div class="toggle-row">
+            <div>
+              <div class="toggle-label">Auto-Reconnect</div>
+              <div class="toggle-sub">Retry Bluetooth on disconnect</div>
+            </div>
+            <button class="toggle" id="toggle-reconnect" onclick="this.classList.toggle('on')"></button>
+          </div>
+        </div>
+
+        <!-- Danger Zone Card -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Testing & Tools</span>
+            <div class="card-icon">🧪</div>
+          </div>
+          <p style="font-size:0.85rem;color:var(--gray-600);margin-bottom:16px;">
+            Use the test button below to simulate a fall detection event. This will NOT send real alerts.
+          </p>
+          <button class="btn btn-outline" id="btn-test-alert" style="border-color:var(--warn);color:var(--warn);">
+            ⚠️ Simulate Fall Detection
+          </button>
+        </div>
+
+        <!-- About Card -->
+        <div class="card" style="text-align:center;padding:24px;">
+          <div style="font-size:2.5rem;margin-bottom:8px;">🏍️</div>
+          <div style="font-size:1.1rem;font-weight:700;color:var(--navy);letter-spacing:-0.02em;">RideGuard</div>
+          <div style="font-size:0.8rem;color:var(--gray-400);margin:4px 0 16px;">Version 1.0.0 · Safety First</div>
+          <button class="btn btn-ghost" id="btn-logout" style="max-width:200px;margin:0 auto;">🚪 Sign Out</button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ─────────────────────────────────────────────────────
+         BOTTOM NAVIGATION
+    ───────────────────────────────────────────────────── -->
+    <nav class="bottom-nav" id="bottom-nav">
+      <button class="bottom-nav-item" id="nav-dashboard">
+        <span class="nav-icon">🏠</span>
+        Dashboard
+      </button>
+      <button class="bottom-nav-item" id="nav-family">
+        <span class="nav-icon">👨‍👩‍👧</span>
+        Family
+      </button>
+      <button class="bottom-nav-item" id="nav-history">
+        <span class="nav-icon">📋</span>
+        History
+      </button>
+      <button class="bottom-nav-item" id="nav-settings">
+        <span class="nav-icon">⚙️</span>
+        Settings
+      </button>
+    </nav>
+
+  </div><!-- end #page-app -->
+
+  <!-- ════════════════════════════════════════════════════════
+       FALL DETECTION OVERLAY (global, outside page-app)
+  ════════════════════════════════════════════════════════ -->
+  <div class="fall-overlay" id="fall-overlay">
+    <div class="fall-card">
+      <div class="fall-icon">⚠️</div>
+      <div class="fall-title">Are you okay?</div>
+      <div class="fall-sub">A fall was detected. Tap below or help will be called automatically.</div>
+
+      <div class="fall-timer" id="fall-timer">
+        <div class="fall-timer-ring"></div>
+        15
+      </div>
+
+      <div class="fall-actions">
+        <button class="btn btn-safe" id="btn-im-ok" style="font-size:1.1rem;padding:18px;">
+          ✅ I'm Okay!
+        </button>
+        <button class="btn btn-danger" onclick="confirmEmergency()" style="font-size:0.9rem;">
+          🚨 Send Emergency Alert Now
+        </button>
+      </div>
+
+      <p style="font-size:0.73rem;color:var(--gray-400);margin-top:16px;text-align:center;line-height:1.5;">
+        No response = automatic emergency alert in <strong id="fall-countdown-text">15</strong> seconds
+      </p>
+    </div>
+  </div>
+
+  <!-- ─── SCRIPTS ────────────────────────────────────────── -->
+  <script src="supabase.js"></script>
+  <script src="app.js"></script>
+  <script>
+    // Initialize app on DOM ready
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+
+</body>
+</html>
