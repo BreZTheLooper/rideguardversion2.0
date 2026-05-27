@@ -6,8 +6,9 @@
 const SUPABASE_URL = 'https://ljyhycuhtlikdqfizwlr.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_GYBr4DKbgSu_E9GXAFgqEA_L3lHg-PN';
 
-// Initialize Supabase client (loaded via CDN in HTML)
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// Use window._rg to avoid clash with browser extensions that inject their own supabase
+window._rg = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+var supabase = window._rg;
 
 // ─── AUTH ────────────────────────────────────────────────────
 
