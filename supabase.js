@@ -3,8 +3,8 @@
 // Replace SUPABASE_URL and SUPABASE_ANON_KEY with your own!
 // ============================================================
 
-const SUPABASE_URL = 'https://YOUR_PROJECT_ID.supabase.co';
-const SUPABASE_ANON_KEY = 'YOUR_ANON_KEY';
+const SUPABASE_URL = 'https://ljyhycuhtlikdqfizwlr.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_GYBr4DKbgSu_E9GXAFgqEA_L3lHg-PN';
 
 // Initialize Supabase client (loaded via CDN in HTML)
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
