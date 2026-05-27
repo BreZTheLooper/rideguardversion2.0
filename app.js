@@ -378,6 +378,9 @@ async function handleBLEConnect() {
     showToast('Helmet connected! 🏍️ You\'re protected.', 'success');
     DOM.navbarStatus.className = 'navbar-status connected';
 
+    // Sync contacts + rider info to ESP32
+    await sendRiderInfoToBLE();
+
   } catch (e) {
     if (e.name !== 'NotFoundError') {
       showToast('Connection failed: ' + e.message, 'error');
@@ -665,7 +668,7 @@ async function handleLogout() {
     stopAlarm();
     disconnectBLE();
     if (state.realtimeChannel) {
-      supabase.removeChannel(state.realtimeChannel);
+      rgDB.removeChannel(state.realtimeChannel);
     }
     await signOut();
     state.user = null;
@@ -836,4 +839,48 @@ function setLoading(el, loading, newText = '') {
 
 function showLoading(show) {
   DOM.loadingOverlay.classList.toggle('show', show);
+}
+
+/* ───────────────────────────────────────────────────────────
+   SEND RIDER INFO TO ESP32 VIA BLE
+   Called right after Bluetooth connects.
+   Sends two messages:
+     CONTACTS:+63917XXXXXXX,+63928XXXXXXX
+     NAME:Marco Santos
+     MSG:I may have been in an accident...
+─────────────────────────────────────────────────────────── */
+async function sendRiderInfoToBLE() {
+  if (!state.bleCharacteristic) return;
+
+  const contacts = state.contacts || [];
+  const name     = state.profile?.name        || 'Rider';
+  const msg      = state.profile?.custom_message || 'I may have been in an accident. Please check on me. — RideGuard Alert';
+
+  // Small delay to let ESP32 settle after connection
+  await new Promise(r => setTimeout(r, 800));
+
+  try {
+    // 1. Send contacts as comma-separated list
+    if (contacts.length > 0) {
+      const contactStr = 'CONTACTS:' + contacts.join(',');
+      await sendBLEMessage(contactStr);
+      console.log('[BLE] Sent:', contactStr);
+      await new Promise(r => setTimeout(r, 400));
+    }
+
+    // 2. Send rider name
+    await sendBLEMessage('NAME:' + name);
+    console.log('[BLE] Sent name:', name);
+    await new Promise(r => setTimeout(r, 400));
+
+    // 3. Send custom emergency message (truncated to 160 chars for SMS)
+    const smsMsg = msg.substring(0, 160);
+    await sendBLEMessage('MSG:' + smsMsg);
+    console.log('[BLE] Sent message:', smsMsg);
+
+    showToast('📡 Contacts synced to helmet', 'success');
+  } catch (e) {
+    console.error('[BLE] Failed to send rider info:', e);
+    showToast('Could not sync contacts to helmet', 'warning');
+  }
 }
